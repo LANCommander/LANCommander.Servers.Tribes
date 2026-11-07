@@ -1,0 +1,47 @@
+#!/bin/sh
+# Start the Starsiege: Tribes dedicated server (START_EXE).
+#
+# Runs `Tribes.exe [-mod <mod>]... +exec lancommander.cs [START_ARGS] -dedicated [<mission>]`
+# under Wine (with Xvfb) from the server root. The server console only goes to a Win32 console
+# that Wine can't show headless, so config/lancommander.cs sets $Console::LogMode and this script
+# streams console.log.
+set -e
+
+root="${SERVER_ROOT:-/config/Merged}"
+
+if [ ! -f "$root/Tribes.exe" ]; then
+    echo "Tribes.exe not found in $root. Put a Tribes install in /config/Server." >&2
+    exit 1
+fi
+
+cd "$root"
+
+: > console.log
+tail -n +1 -F console.log 2>/dev/null &
+
+# console.cs reads `-dedicated <mission>` as a pair, so -dedicated goes last: anything after it
+# would be taken as the mission name
+set -- +exec lancommander.cs "$@"
+
+# TRIBES_MOD: one or more mod folders, separated by spaces or commas, in load order
+mods=""
+for mod in $(echo "${TRIBES_MOD:-}" | tr ',' ' '); do
+    if [ ! -d "$mod" ]; then
+        echo "Mod folder $mod not found" >&2
+        exit 1
+    fi
+    mods="$mods $mod"
+done
+for mod in $(echo "$mods" | awk '{ for (i = NF; i > 0; i--) print $i }'); do
+    set -- -mod "$mod" "$@"
+done
+
+set -- "$@" -dedicated
+if [ -n "${TRIBES_MISSION:-}" ]; then
+    set -- "$@" "$TRIBES_MISSION"
+fi
+
+printf 'Starting: Tribes.exe %s\n' "$*"
+
+export WINE_WORKDIR="$root"
+exec wine-run Tribes.exe "$@"
